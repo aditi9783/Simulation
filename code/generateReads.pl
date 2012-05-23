@@ -45,9 +45,10 @@ for my $i ( 0 .. $#rlen ) {
 my @ilower = (200, 200);	# lower and upper bounds for paired end data, index matched tech code
 my @iupper = (500, 8000);
 
-my ($haps, $seq, $isize, $rid, $rqual, $hposbase, $nreads, $hapflag, $errorbase);
+my ($haps, $seq, $rid, $rqual, $hposbase, $nreads, $hapflag, $errorbase);
 my (@genome, @h, $baseErr, @posCov);	# baseErr is ref to 2d arrays: errors/snp at each pos in seq, posCov contains coverage at each pos
 my $NHAP = 0;			# keeps track of total number of hap bases to be inserted
+my $isize = 0;			# insert size for paired reads
 my ($i, $n, $pos, $b);  	# common vars to be used as index in for loops, #haps, pos in read, and hap indices
 
 my (@ridx, @lidx, @read);	# read start and last index, identifier, actual read
@@ -65,9 +66,12 @@ my $fname = $ref . "_sim_" . $techname[$tech] . "_nr" . $nr;
 $fname = $fname . "_hfile_" . $hapfile if $hapfile;
 my $fname1 = $fname . "_fir.fa";
 my $fname2 = $fname . "_sec.fa" if $tech < 2;
+my $paired_factor = 1;
+$paired_factor = 2 if $tech < 2;
+my @hapFreq;		# cumulative dist of hap frequencies, on a scale of 1000.
 
 if ( $hapfile ) {
-#	open( HR, ">$fname.hapread" ) or die "can't open file to write: $!\n";	# this file contains read ids that contain hap positions
+	open( HR, ">$fname.hapread" ) or die "can't open file to write: $!\n";	# this file contains read ids that contain hap positions
 	getHaps();
 }
 
@@ -83,6 +87,7 @@ open (COV, ">$fname.coverage") or die "can't open file to write: $!\n";
 # initialize base error and position read arrays
 for $i ( 0 .. $#genome ) {
 	push @{ $baseErr->[$i] }, 0;
+	$posCov[$i] = 0;
 }
 
 getReads();
@@ -98,7 +103,7 @@ undef (@genome);
 undef ($baseErr);
 undef (@posCov);
 
-#close HR if $hapfile;
+close HR if $hapfile;
 close R0;
 close R1 if $tech <2;
 close ERR;
@@ -123,9 +128,10 @@ sub getReads {
 
 	# generate indices for read start positions
 	for $rid ( 0 .. $nr-1 ) {			# number of reads to be generated
-		$ridx[0] = int(rand($#genome+1));	# read index
+		$isize = int(rand($iupper[$tech] - $ilower[$tech])) + $ilower[$tech] if $tech < 2;	# insert size for paired reads
+		$ridx[0] = int(rand($#genome+1 - ($paired_factor * $rlen[$tech]) - $isize ));	# read index should be small enough to accomodate paired read and insert
 		$lidx[0] = $ridx[0]+$rlen[$tech]-1;
-		$lidx[0] = $#genome if $#genome < $lidx[0];
+	#	$lidx[0] = $#genome if $#genome < $lidx[0];
 		$read[0]= [ @genome[ $ridx[0] .. $lidx[0] ] ];
 		for $i ( $ridx[0] .. $lidx[0] ) {
 			$posCov[$i]++;
@@ -135,10 +141,9 @@ sub getReads {
 		# generate paired end reads if required
 		if ( $tech < 2 ) {
 			# generate insert sizes for each paired end read
-			$isize = int(rand($iupper[$tech] - $ilower[$tech])) + $ilower[$tech];
 			$ridx[1] = $ridx[0] + $rlen[$tech] + $isize;
 			$lidx[1] = $ridx[1]+$rlen[$tech]-1;	# last index for the paired read
-			$lidx[1] = $#genome if $#genome < $lidx[1];
+	#		$lidx[1] = $#genome if $#genome < $lidx[1];
 			$read[1]= [ @genome[ $ridx[1] .. $lidx[1] ] ];
 			for $i ( $ridx[1] .. $lidx[1] ) {
 				$posCov[$i]++;
@@ -149,7 +154,7 @@ sub getReads {
 
 		print "haps left to be inserted (NHAP): $NHAP\n" if $debug;
 		# insert haplotypes if requested
-		if ($NHAP > 0) {
+		if ($hapfile) {
 			introHaps( $rid );
 		}
 
@@ -253,29 +258,40 @@ sub printFasta {
 # USAGE: $haps = getHaps( $hapfile );
 ####################
 sub getHaps {
-	my $coverage = $nr * $rlen[$tech] / $#genome;
-	$coverage = $coverage * 2 if $tech < 2;		# number of reads are doubled for paired end methods
+#	my $coverage = $nr * $rlen[$tech] / $#genome;
+#	$coverage = $coverage * 2 if $tech < 2;		# number of reads are doubled for paired end methods
 	# store haps in $haps, 1st value is the hap frequency
 	open( HAP, $hapfile ) or die "can't open file $hapfile: $!\n";
+	my $hapN = 0;	# counter for number of haps
 	while ( <HAP> ) {
 		if ($_ =~ /.+\t\d+/) {
 			chomp;
 			@h = split /\t/;	# haplotype in each line of hapfile
-			$nreads = int( $h[0] * $coverage )+1;	# numer of reads that should have this haplotype, at least once
-#			print HR "haplotype: @h\t#reads for each pos: $nreads\n";
+#			$nreads = int( $h[0] * $coverage )+1;	# numer of reads that should have this haplotype, at least once
+			print HR "haplotype: @h\n";
+			if ($#hapFreq < 0) {
+				$hapFreq[0] = $h[0] * 1000;
+			} else {
+				$hapFreq[ $hapN ] = $hapFreq[$hapN-1] + ($h[0] * 1000);
+			}
 			for ( $i=1; $i<=$#h; $i +=2 ) {
-				push @{ $hposbase }, [$h[$i]-1, $h[$i+1], $nreads];	# hap pos (-1 to start index from 0), base, and #reads it should be in
+#				push @{ $hposbase }, [$h[$i]-1, $h[$i+1], $nreads];	# hap pos (-1 to start index from 0), base, and #reads it should be in
+				push @{ $hposbase }, [$h[$i]-1, $h[$i+1]];	# hap pos (-1 to start index from 0), and hap base
 				print "\tpos $h[$i], base $h[$i+1]" if $debug;
-				$NHAP += $nreads;
-				print "\tNHAP $NHAP\n" if $debug;
+#				$NHAP += $nreads;
+#				print "\tNHAP $NHAP\n" if $debug;
 				last if $i >= $#h;
 			}
-			push @{ $haps }, $hposbase;
+#			push @{ $haps }, $hposbase;
+			$haps->[$hapN] = $hposbase;
+			$hapN++;
 		}
 		undef (@h);
 		undef ($hposbase);
 		undef ($nreads);
 	}
+	$hapFreq[$hapN] = 1000;	# last element of hapFreq should be the max val (this represents the reference seq with no haps)
+	print "hapFreq: @hapFreq\n" if $debug;
 }
 # End of getHaps #
 
@@ -290,27 +306,38 @@ sub getHaps {
 ####################
 sub introHaps {
 	$rid = shift;
-	for $n ( 0 .. $#{ $haps } ) {
-		$hapflag = 0;
+
+	# select a hap at a frequency of its occurence, and insert the hap bases
+	my $hapN = int(rand(1000))+1;		# gives a random number in range 1 to 1000
+	my $nidx = $#hapFreq;			# default hap index corresponds to reference
+	for $n ( 0 .. $#hapFreq ) {
+		next if $hapN > $hapFreq[$n];
+		$nidx = $n;
+		last;	# if this line is reached, then the current value of $n is the desired hap
+	}
+	print "hapN: $hapN, nidx: $nidx\n" if $debug;
+	return if $nidx == $#hapFreq;	# reference seq, no hap need to be inserted
+#	for $n ( 0 .. $#{ $haps } ) {
+#		$hapflag = 0;
 		# check if this read covers a hap. A read (or paired read) is allowed to have one haplotype only, but can contain all pos of this hap
 		for $i ( 0 .. $#read ) {		# for each read
-			for $b ( 0 .. $#{ $haps->[$n] } ) { 	# for all bases in this hap
-				next if $haps->[$n]->[$b]->[2] == 0;	# skip if this hap base has been inserted in required number of reads
+			for $b ( 0 .. $#{ $haps->[$nidx] } ) { 	# for all bases in this hap
+#				next if $haps->[$n]->[$b]->[2] == 0;	# skip if this hap base has been inserted in required number of reads
 				
 				# if hap position lies in read, insert hap base
-				if ( $haps->[$n]->[$b]->[0] >= $ridx[$i] and $haps->[$n]->[$b]->[0] <= $lidx[$i] ) {
-					$read[$i]->[ $haps->[$n]->[$b]->[0] - $ridx[$i] ] = $haps->[$n]->[$b]->[1];
-					$haps->[$n]->[$b]->[2]--;	# decrease counter for # reads for this hap pos
-					$NHAP--;			# decrease overall # hap counts
-					$hapflag++;
-					print "\t\thap found: rid $rid, happos $haps->[$n]->[$b]->[0], NHAP $NHAP\n" if $debug;
-					$pos = $haps->[$n]->[$b]->[0] + 1;
-#					print HR "rid: $rid, hap pos: $pos, base: $haps->[$n]->[$b]->[1]\n";
-					push @{ $baseErr->[ $haps->[$n]->[$b]->[0] ] }, $haps->[$n]->[$b]->[1];
+				if ( $haps->[$nidx]->[$b]->[0] >= $ridx[$i] and $haps->[$nidx]->[$b]->[0] <= $lidx[$i] ) {
+					$read[$i]->[ $haps->[$nidx]->[$b]->[0] - $ridx[$i] ] = $haps->[$nidx]->[$b]->[1];
+#					$haps->[$n]->[$b]->[2]--;	# decrease counter for # reads for this hap pos
+#					$NHAP--;			# decrease overall # hap counts
+#					$hapflag++;
+					print "\t\thap found: rid $rid, happos $haps->[$nidx]->[$b]->[0], NHAP $NHAP\n" if $debug;
+					$pos = $haps->[$nidx]->[$b]->[0] + 1;
+					print HR "rid: $rid, hap pos: $pos, base: $haps->[$nidx]->[$b]->[1]\n";
+					push @{ $baseErr->[ $haps->[$nidx]->[$b]->[0] ] }, $haps->[$nidx]->[$b]->[1];
 				}
 			}
 		}
-		last if $hapflag > 0;	# allow only one haplotype for each read
-	}	
+#		last if $hapflag > 0;	# allow only one haplotype for each read
+#	}	
 }
 # End of introHaps #
