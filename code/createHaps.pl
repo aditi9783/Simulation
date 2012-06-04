@@ -155,24 +155,30 @@ sub evolHap {
 	@newhap = @{ $oldhap };
 
 	while ( $evol > 0 ) {
-		my $pos = int(rand( $#newhap+1 ));		# select a hap position randomly
-		my $base = $newhap[$pos][1];		# hap base at this position		
-		# convert base to numeric index that matches @nt, 0:A, 1:T, 2:C, 3:G
-		$base =~ tr/ATCG/0123/;
 
 		# 50/25/25 chance of creating a new hap base at this position or deleting this hap pos or creating new hap pos
 		my $toss = rand();
 		if ($toss <= 0.5) {	# new hap base is just the nt at index $base+1 in @nt
-#			print "changing snp base: $newhap[$pos][0], $newhap[$pos][1]. new base: $nt[$base+1]\n";
-			$newhap[$pos][1] = $nt[$base+1];
+			my $pos = int(rand( $#newhap+1 ));		# select a hap position randomly
+		#	my $base = $newhap[$pos][1];		# hap base at this position		
+		 	my $base = $genome->[$pos];
+			# convert base to numeric index that matches @nt, 0:A, 1:T, 2:C, 3:G
+			$base =~ tr/ATCG/0123/;
+			my $newbase = int( rand(4) );
+			next if $newbase == $base;	# if new hap base is true base in genome, then don't do anything
+#			print "changing snp base: $newhap[$pos][0], $newhap[$pos][1]. new base: $nt[$newbase]\n";
+			$newhap[$pos][1] = $nt[$newbase];
 		} elsif ($toss > 0.5 and $toss <= 0.75 ) { 	# add a new hap pos
 			my $newpos = int(rand( $#{$genome}+1 ));
 			redo if $seen{ $newpos }++;
-			$base = $genome->[$newpos];
+		 	my $base = $genome->[$newpos];
 			$base =~ tr/ATCG/0123/;
-			push @newhap, [$newpos+1, $nt[$base+1]]; 
-#			print "insert new snp: $newpos+1, $nt[$base+1]\n";
+			my $newbase = int( rand(4) );
+			redo if $newbase == $base;	# hap base should be different from true genome base
+			push @newhap, [$newpos+1, $nt[$newbase]]; 
+#			print "insert new snp: $newpos+1, $nt[$newbase]\n";
 		} else {		# remove this hap positon or create a new one
+			my $pos = int(rand( $#newhap+1 ));		# select a hap position randomly
 #			print "remove snp: @{$newhap[$pos]}\n";
 			splice (@newhap, $pos, 1);
 		}
