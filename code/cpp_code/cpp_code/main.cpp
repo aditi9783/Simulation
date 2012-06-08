@@ -29,7 +29,7 @@ void hapfile_open(const char *);
 int main(int argc, const char * argv[])
 {
     // usage();
-    cout << "argc is" << argc;
+    cout << "argc is   " << argc;
     
     // check if enough parameters have been passed
     if (argc < 3)
