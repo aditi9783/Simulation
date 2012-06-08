@@ -13,9 +13,13 @@
 void snp::define_snp (int a, char b, float c) {     // set values for snp
     pos = a;
     nt = b;
-    coverage = c;
+    frac_cov = c;
 }
-    
+   
+/*int snp::position() { return pos; }
+char snp::base() { return nt; }
+float snp::cov() { return frac_cov; }
+*/
 
 void snp::setrank (int a) {
     rank = a;
@@ -24,7 +28,11 @@ void snp::setrank (int a) {
 void snp::hap_assoc (int a) {
     
 }
-    int* gethaps();
+    
+int snp::gethaps () {
+    
+    return 0;
+}
     
 
 
